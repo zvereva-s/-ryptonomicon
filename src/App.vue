@@ -5,17 +5,28 @@ export default {
       ticker: '',
       tickers: [],
       sel: null,
-      graph: []
+      graph: [],
+      coins:[],
+      tips:[],
+      error:null
     }
   },
   methods: {
+    setTicker(ticker){
+        this.error = this.tickers.some(item=>item.name === ticker);
+        if(this.error){
+          this.tips= []
+          return}
+      this.ticker = ticker;
+      this.tips= [];
+    },
     addTicker() {
-      const newTicker = {
+        const newTicker = {
         name: this.ticker,
         price: '-'
       }
       this.tickers.push(newTicker)
-      const timer = setInterval(async () => {
+      setInterval(async () => {
         const res = await fetch(
           `https://min-api.cryptocompare.com/data/price?fsym=${newTicker.name}&tsyms=USD&api_key=3688be9b4ea51e643243ddda7cb7cd2f30bc714610671215182e8aa3b502e442`
         )
@@ -28,7 +39,11 @@ export default {
           this.graph.push(data.USD)
         }
       }, 5000)
-      this.ticker = ''
+
+      this.ticker = '';
+      this.error = null;
+      this.tips = [];
+      
     },
     selectTicker(ticker) {
       this.sel = ticker
@@ -41,14 +56,32 @@ export default {
       const maxValue = Math.max(...this.graph)
       const minValue = Math.min(...this.graph)
       return this.graph.map((price) => 5 + ((price - minValue) * 95) / (maxValue - minValue))
+    },
+    getAllCoins (){
+    ( async()=>{
+         const res = await fetch('https://min-api.cryptocompare.com/data/all/coinlist?summary=true');
+         const data = await res.json()
+          const keys = Object.keys(data.Data);
+          this.coins = keys.map(key=>({...data.Data[key], key}))
+      })()
+     
+    },
+    getTips(){
+      this.error = null;
+      if(this.ticker.length >=2){
+        this.tips = this.coins.filter(coin=>coin.key.toLowerCase().includes(this.ticker.toLowerCase()) || coin.FullName.toLowerCase().includes(this.ticker.toLowerCase())).slice(0, 10)
+      };
     }
+  },
+  mounted(){
+   this.getAllCoins()
   }
 }
 </script>
 
 <template v-if="sel">
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
-    <div class="container">
+    <div class="container"> 
       <section>
         <div class="flex">
           <div class="max-w-xs">
@@ -56,6 +89,7 @@ export default {
             <div class="mt-1 relative rounded-md shadow-md">
               <input
                 v-model="ticker"
+                v-on:keydown="getTips"
                 v-on:keydown.enter="addTicker"
                 type="text"
                 name="wallet"
@@ -64,29 +98,17 @@ export default {
                 placeholder="Например DOGE"
               />
             </div>
-            <div class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap">
-              <span
+            <template v-if="tips.length">
+             <div 
+              class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap">
+              <span v-for="tip in tips" :key="tip.key"
+              @click="setTicker(tip.key)"
                 class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
               >
-                BTC
+                {{tip.key}}
               </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                DOGE
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                BCH
-              </span>
-              <span
-                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
-              >
-                CHD
-              </span>
-            </div>
-            <div class="text-sm text-red-600">Такой тикер уже добавлен</div>
+            </div></template>
+            <div v-if="error && ticker.length > 0" class="text-sm text-red-600">Такой тикер уже добавлен</div>
           </div>
         </div>
         <button
