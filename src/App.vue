@@ -1,24 +1,66 @@
 <script>
+/* Ошибки и их критичность перед рефактором */
+// [] 1. Наличие в состоянии ЗАВИСИМЫХ ДАННЫХ / Критичность - 5
+// [] 2. Запросы напрямую внутри компонента / Критичность - 5
+// [] 3. При удалении остается подписка на загрузку тикера / Критичность - 5
+// [] 4. Обработка ошибок АПИ / Критичность - 5
+// [] 5. Количество запросов / Критичность - 4
+// [] 6. При удалении тикера локалСторадж не обновляется / Критичность - 4
+// [] 7. Одинаковый код в watch / Критичность - 3
+// [] 8. localStorage и анонимные вкладки / Критичность - 3
+
+/* computed - не может принимать аргументы - кеширует данные и работает как методы - это только рассчет */
+
 export default {
   data() {
     return {
+      filter:'',
       ticker: '',
       tickers: [],
       sel: null,
       graph: [],
       coins:[],
       tips:[],
-      error:null
+      error:null,
+      page:1,
+    }
+  },
+  computed:{
+    startIdx(){
+      return (this.page-1) * 6
+    },
+    endIdx(){
+      return this.page *6
+    },
+    filteredTickers(){
+        return this.tickers.filter(item=>item.name.toLowerCase().includes(this.filter.toLowerCase()));  
+    },
+    paginatedTickers(){
+      return this.filteredTickers.slice(this.startIdx, this.endIdx)
+    },
+    hasNextPage(){
+      return this.filteredTickers.length > this.endIdx;
+    },
+    normalizedGraph() {
+      const maxValue = Math.max(...this.graph)
+      const minValue = Math.min(...this.graph)
+
+      if(maxValue === minValue){
+        return this.graph.map(()=>50)
+      }
+      return this.graph.map((price) => 5 + ((price - minValue) * 95) / (maxValue - minValue))
+    },
+    pageOptions(){
+      return {
+        filter: this.filter,
+        page:this.page
+      }
     }
   },
   methods: {
     setTicker(ticker){
-        this.error = this.tickers.some(item=>item.name === ticker);
-        if(this.error){
-          this.tips= []
-          return}
+      this.error = this.tickers.some(item=>item.name === ticker);
       this.ticker = ticker;
-      this.tips= [];
     },
     subscribesToUpdates(tickerName){
       setInterval(async () => {
@@ -41,26 +83,20 @@ export default {
         price: '-'
       }
       this.tickers.push(newTicker)
-      localStorage.setItem('cryptonomic-list', JSON.stringify(this.tickers))
 
       this.subscribesToUpdates(newTicker.name)
-
+      this.tickers = [...this.tickers, newTicker]
       this.ticker = '';
-      this.error = null;
-      this.tips = [];
-      
+      this.error = null;  
     },
     selectTicker(ticker) {
       this.sel = ticker
-      this.graph = []
     },
     deleteTicker(ticker) {
-      this.tickers = this.tickers.filter((item) => item !== ticker)
-    },
-    normalizeGraph() {
-      const maxValue = Math.max(...this.graph)
-      const minValue = Math.min(...this.graph)
-      return this.graph.map((price) => 5 + ((price - minValue) * 95) / (maxValue - minValue))
+      this.tickers = this.tickers.filter((item) => item !== ticker);
+      if(this.sel === ticker){
+        this.sel=null
+      };
     },
     getAllCoins (){
     ( async()=>{
@@ -76,9 +112,28 @@ export default {
       if(this.ticker.length >=2){
         this.tips = this.coins.filter(coin=>coin.key.toLowerCase().includes(this.ticker.toLowerCase()) || coin.FullName.toLowerCase().includes(this.ticker.toLowerCase())).slice(0, 10)
       };
+    },
+    incrementPage(){
+      if(this.hasNextPage){
+        this.page = this.page +1;
+      }
+    },
+    decrementPage(){
+      if((this.page - 1) !== 0){
+        this.page = this.page -1;
+      }
     }
   },
   created(){
+    const windowData = Object.fromEntries(new URL(window.location).searchParams.entries())
+
+      if(windowData.filter){
+        this.filter = windowData.filter
+      }
+      if(windowData.page){
+        this.page = windowData.page
+      }
+
    this.getAllCoins();
 
    const tickersData = localStorage.getItem('cryptonomic-list');
@@ -88,8 +143,34 @@ export default {
       this.subscribesToUpdates(element.name)
     });
    }
+  },
+  watch:{
+    ticker(){
+        if(this.ticker.length === 0){
+          this.tips =[]
+        }
+    },
+    tickers(){
+      localStorage.setItem('cryptonomic-list', JSON.stringify(this.tickers))
+    },
+    sel(){
+      this.graph = []
+    },
+    paginatedTickers(){
+      if(this.paginatedTickers.length === 0  && this.page >1){
+        this.page -=1
+      }
+    },
+    pageOptions(){
+      window.history.pushState(null, document.title, `${window.location.pathname}?filter=${this.filter}&page=${this.page}`)
+    },
+    error(){
+      this.tips = []
+    }
+    
   }
 }
+
 </script>
 
 <template v-if="sel">
@@ -127,6 +208,8 @@ export default {
         <button
           @click="addTicker"
           type="button"
+          disabled="error"
+          :class="error && 'disabled:bg-gray-400 disabled:cursor-not-allowed'"
           class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
         >
           <svg
@@ -144,10 +227,29 @@ export default {
         </button>
       </section>
       <template v-if="tickers.length">
+      <hr class="w-full border-t border-gray-600 my-4" />
+      <div class='flex items-center justify-center gap-3' > 
+      <label for="wallet" class="block text-sm font-medium text-gray-700">Фильтр: </label>
+                <input
+                v-model="filter"
+                type="text"
+                name="wallet"
+                id="wallet"
+                class="block w-full pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
+                placeholder="Например BTC"
+              />
+              <button type="button"
+              @click="decrementPage"
+              v-if="page >1"
+          class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Назад</button>
+              <button type="button"
+              @click="incrementPage"
+          class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">Вперед</button>
+      </div>
         <hr class="w-full border-t border-gray-600 my-4" />
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
-            v-for="tk in tickers"
+            v-for="tk in paginatedTickers"
             :key="tk.name"
             @click="selectTicker(tk)"
             :class="tk.name === sel?.name ? 'border-4' : ''"
@@ -185,7 +287,7 @@ export default {
           <h3 class="text-lg leading-6 font-medium text-gray-900 my-8">{{ sel.name }} - USD</h3>
           <div class="flex items-end border-gray-600 border-b border-l h-64">
             <div
-              v-for="(bar, idx) in normalizeGraph()"
+              v-for="(bar, idx) in normalizedGraph"
               :key="idx"
               :style="{ height: `${bar}%` }"
               class="bg-purple-800 border w-10"
