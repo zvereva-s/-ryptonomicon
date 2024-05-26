@@ -1,13 +1,11 @@
 <template>
   <v-app>
     <v-main>
-      <HelloWorld />
+      <TestView />
     </v-main>
-
-    <AppFooter />
   </v-app>
 </template>
 
 <script setup>
-  //
+import TestView from "./components/TestView.vue";
 </script>
